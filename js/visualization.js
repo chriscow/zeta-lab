@@ -49,11 +49,11 @@ export class ZetaVisualization {
         this.camera.lookAt(0, 0, 0);
 
         // Add lights
-        const ambientLight = new THREE.AmbientLight(0x404040);
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        directionalLight.position.set(1, 1, 1);
-        this.scene.add(ambientLight);
-        this.scene.add(directionalLight);
+        // const ambientLight = new THREE.AmbientLight(0x404040);
+        // const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        // directionalLight.position.set(1, 1, 1);
+        // this.scene.add(ambientLight);
+        // this.scene.add(directionalLight);
 
         // Add grid helper
         const size = 10;

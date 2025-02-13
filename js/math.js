@@ -363,6 +363,97 @@ export class ZetaMath {
             }
         };
     }
+
+    /**
+     * calculateSpiralParallel generates points for visualizing the Riemann Zeta function
+     * in parallel. It splits the independent delta calculations across multiple
+     * Web Workers and then reconstructs the continuous spiral by performing a prefix sum.
+     *
+     * @param {number} real - The real part of the input (σ)
+     * @param {number} index - The index used to calculate the imaginary part
+     * @param {number} formula - The formula selection (currently only Riemann-Siegel is implemented)
+     * @param {boolean} useNewImag - Whether to use the new formula for imaginary part calculation
+     * @returns {Promise<{points: Array<{x: number, y: number, z: number}>, zeta: Complex, scale: {min: number, max: number}}>}
+     */
+    static async calculateSpiralParallel(real, index, formula, useNewImag = true) {
+        // Compute the imaginary part as before
+        const imag = this.indexToImag(index, useNewImag);
+        const totalRange = Math.floor(imag / Math.PI + 1);
+        const maxPoints = 65_000_000; // Cap maximum points for performance
+        const stepSize = Math.max(1, totalRange / maxPoints);
+
+        // Build an array of iteration values based on stepSize
+        const iterationValues = [];
+        for (let i = 1; i <= totalRange; i += stepSize) {
+            iterationValues.push(i);
+        }
+        console.log(`Parallel Spiral: total iterations = ${iterationValues.length}`);
+
+        // Decide on number of workers (or threads)
+        const numWorkers = navigator.hardwareConcurrency || 4;
+        const chunkSize = Math.ceil(iterationValues.length / numWorkers);
+        console.log(`Dividing iterations into ${numWorkers} chunk(s) of ~${chunkSize} values each`);
+
+        // Dispatch chunks to workers
+        const promises = [];
+        for (let i = 0; i < numWorkers; i++) {
+            const chunk = iterationValues.slice(i * chunkSize, (i + 1) * chunkSize);
+            const worker = new Worker('js/spiralWorker.js');
+            promises.push(new Promise(resolve => {
+                worker.onmessage = e => {
+                    console.log(`Worker for chunk ${i} done`);
+                    resolve({ chunkIndex: i, chunkResult: e.data });
+                    worker.terminate();
+                };
+                worker.postMessage({ chunk, real, imag });
+            }));
+        }
+
+        // Wait for all workers to finish and sort the results by chunk index
+        const results = (await Promise.all(promises)).sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+        // Reassemble the spiral by applying a prefix sum adjustment to each chunk
+        let offsetX = 0;
+        let offsetY = 0;
+        const points = [];
+        points.push({ x: 0, y: 0, z: 0 });
+        let globalMin = 0;
+        let globalMax = 0;
+
+        for (const res of results) {
+            const { prefix, localSum } = res.chunkResult;
+            // Adjust each point in this chunk by the accumulated offset
+            for (const p of prefix) {
+                const x = p.x + offsetX;
+                const y = p.y + offsetY;
+                points.push({ x, y, z: 0 });
+                globalMin = Math.min(globalMin, x, y);
+                globalMax = Math.max(globalMax, x, y);
+            }
+            // Update offset for the next chunk
+            offsetX += localSum.x;
+            offsetY += localSum.y;
+        }
+
+        // Calculate the Zeta value at the target point (as in the original method)
+        let zeta;
+        switch (formula) {
+            case 0: // Riemann-Siegel
+                zeta = await this.reimannSiegel(new Complex(real, imag));
+                break;
+            default:
+                zeta = await this.reimannSiegel(new Complex(real, imag));
+        }
+
+        console.log(`Parallel Spiral complete. Total points: ${points.length}`);
+        console.log(`Scale range: { min: ${globalMin}, max: ${globalMax} }`);
+
+        return {
+            points,
+            zeta,
+            scale: { min: globalMin, max: globalMax }
+        };
+    }
 }
 
 // Export for testing
