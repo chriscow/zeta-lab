@@ -139,7 +139,7 @@ export class ZetaVisualization {
         
         try {
             // Calculate spiral points
-            const { points, zeta } = await ZetaMath.calculateSpiral(real, index, formula, useNewImag);
+            const { points, zeta } = await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag);
             console.log('Calculated points:', points.length, 'Zeta:', zeta);
 
             // Notify about zeta update
