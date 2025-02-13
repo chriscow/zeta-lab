@@ -1,0 +1,10 @@
+{
+  "name": "zeta-visualization",
+  "version": "1.0.0",
+  "description": "Web visualization of Riemann Zeta function",
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+} 

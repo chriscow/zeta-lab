@@ -1,0 +1,165 @@
+/* Reset some Pico defaults */
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden; /* Prevent scrolling on the body */
+}
+
+/* Main layout */
+.app-layout {
+    display: grid;
+    grid-template-columns: auto 400px; /* Fixed 400px for controls, auto for visualization */
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden; /* Prevent scrolling on the grid container */
+}
+
+/* Visualization container */
+.visualization-container {
+    position: relative;
+    height: 100vh;
+    background: #000;
+    min-width: 0; /* Allow container to shrink below its content size */
+    overflow: hidden; /* Prevent scrolling */
+}
+
+#visualization {
+    width: 100%;
+    height: 100%;
+}
+
+/* Controls container */
+.controls-container {
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.05);
+    overflow-y: auto;
+    height: 100vh;
+    box-sizing: border-box;
+    width: 400px; /* Fixed width */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+/* Control groups */
+.control-group {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 8px;
+}
+
+/* Input and select styling */
+input[type="number"],
+select {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+/* Range input styling */
+input[type="range"] {
+    width: 100%;
+    margin: 10px 0;
+}
+
+/* Checkbox styling */
+input[type="checkbox"] {
+    margin-right: 8px;
+}
+
+/* Info panel */
+.info-panel {
+    background: rgba(0, 0, 0, 0.05);
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.info-panel h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+}
+
+.info-grid {
+    display: grid;
+    gap: 15px;
+}
+
+.info-grid strong {
+    display: block;
+    margin-bottom: 5px;
+}
+
+/* Value displays */
+#imag-value,
+#zeta-value {
+    font-family: monospace;
+    font-size: 14px;
+    display: block;
+    padding: 5px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 4px;
+}
+
+/* Animation slider */
+.slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8em;
+    color: #666;
+    margin-top: -8px;
+}
+
+#anim-slider {
+    margin-bottom: 0;
+}
+
+/* Debug panel */
+.debug-panel {
+    position: fixed;
+    bottom: 20px;
+    left: 20px;
+    background: rgba(0, 0, 0, 0.8);
+    color: #00ff00;
+    padding: 15px;
+    border-radius: 8px;
+    max-width: 400px;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: monospace;
+    font-size: 12px;
+    z-index: 1000;
+    pointer-events: none;
+}
+
+.debug-panel h3 {
+    margin-top: 0;
+    color: #fff;
+}
+
+.debug-panel pre {
+    pointer-events: auto;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+    .app-layout {
+        grid-template-columns: 1fr;
+        grid-template-rows: 1fr auto;
+        height: 100vh;
+        overflow: hidden;
+    }
+    
+    .visualization-container {
+        height: 60vh;
+        width: 100%;
+    }
+    
+    .controls-container {
+        height: 40vh;
+        width: 100%;
+        max-height: 40vh;
+    }
+} 
