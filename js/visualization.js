@@ -93,6 +93,10 @@ export class ZetaVisualization {
         // Callback for zeta updates
         this.onZetaUpdate = null;
 
+        // Add calculation option flags
+        this.useParallelCalculation = false;
+        this.useRiemannSiegel = false;
+
         // Start animation loop
         this.animate();
 
@@ -134,12 +138,33 @@ export class ZetaVisualization {
         this.stats.end();
     }
 
+    // Add setters for calculation options
+    setParallelCalculation(enabled) {
+        console.log('Setting parallel calculation:', enabled);
+        this.useParallelCalculation = enabled;
+    }
+
+    setRiemannSiegel(enabled) {
+        console.log('Calculate Riemann-Siegel:', enabled);
+        this.useRiemannSiegel = enabled;
+    }
+
     async updateSpiral(real, index, formula, useNewImag = true) {
-        console.log('Updating spiral:', { real, index, formula, useNewImag });
+        console.log('Updating spiral:', { 
+            real, 
+            index, 
+            formula, 
+            useNewImag,
+            useParallel: this.useParallelCalculation,
+            useRiemannSiegel: this.useRiemannSiegel
+        });
         
         try {
-            // Calculate spiral points
-            const { points, zeta } = await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag);
+            // Calculate spiral points using selected method
+            const { points, zeta } = this.useParallelCalculation ?
+                await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag, this.useRiemannSiegel) :
+                await ZetaMath.calculateSpiral(real, index, formula, useNewImag, this.useRiemannSiegel);
+
             console.log('Calculated points:', points.length, 'Zeta:', zeta);
 
             // Notify about zeta update

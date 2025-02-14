@@ -151,6 +151,15 @@ document.addEventListener('DOMContentLoaded', () => {
         zetaValueDisplay.textContent = zeta.toString();
     };
 
+    // Add these after visualization is initialized
+    document.getElementById('parallel-calculation').addEventListener('change', (e) => {
+        visualization.setParallelCalculation(e.target.checked);
+    });
+
+    document.getElementById('riemann-siegel').addEventListener('change', (e) => {
+        visualization.setRiemannSiegel(e.target.checked);
+    });
+
     // Initial update
     updateVisualization(performance.now());
     

@@ -276,14 +276,14 @@ export class ZetaMath {
         let minVal = 0, maxVal = 0;
         
         // Calculate the Zeta value at the target point
-        let zeta = new Complex(0, 0);
-        // switch (formula) {
-        //     case 0: // Reimann-Siegel
-        //         zeta = await this.reimannSiegel(new Complex(real, imag));
-        //         break;
-        //     default:
-        //         zeta = await this.reimannSiegel(new Complex(real, imag));
-        // }
+        let zeta;
+        switch (formula) {
+            case 0: // Reimann-Siegel
+                zeta = await this.reimannSiegel(new Complex(real, imag));
+                break;
+            default:
+                zeta = await this.reimannSiegel(new Complex(real, imag));
+        }
 
         // Debug output for verification
         const debugPoints = 5;
@@ -332,7 +332,7 @@ export class ZetaMath {
         // Log final results for verification
         console.log('\nFinal Values:');
         console.log('Final point:', points[points.length - 1]);
-        // console.log('Zeta value:', { real: zeta.real, imag: zeta.imag });
+        console.log('Zeta value:', { real: zeta.real, imag: zeta.imag });
 
         // Additional debug info for spiral direction
         if (points.length >= 3) {
