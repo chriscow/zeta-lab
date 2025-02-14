@@ -454,6 +454,173 @@ export class ZetaMath {
             scale: { min: globalMin, max: globalMax }
         };
     }
+
+    static downsampleComplex(links, outputSize, aggressiveness, debug = false) {
+        if (links.length === 0) {
+            console.warn('No links to downsample');
+            return links;
+        }
+
+        // Validate input format
+        if (!links[0].hasOwnProperty('real') || !links[0].hasOwnProperty('imag')) {
+            console.error('Invalid point format for downsampling:', links[0]);
+            return links;
+        }
+
+        console.log(`Starting downsample with ${links.length} points, outputSize=${outputSize}, aggressiveness=${aggressiveness}`);
+
+        // Create flat arrays for better performance
+        const len = links.length;
+        const reals = new Float64Array(len);
+        const imags = new Float64Array(len);
+        
+        // Populate arrays and find bounds in one pass
+        let minX = links[0].real, maxX = links[0].real;
+        let minY = links[0].imag, maxY = links[0].imag;
+        
+        for (let i = 0; i < len; i++) {
+            const real = links[i].real;
+            const imag = links[i].imag;
+            reals[i] = real;
+            imags[i] = imag;
+            
+            if (real < minX) minX = real;
+            if (real > maxX) maxX = real;
+            if (imag < minY) minY = imag;
+            if (imag > maxY) maxY = imag;
+        }
+
+        console.log(`Bounds: X=[${minX}, ${maxX}], Y=[${minY}, ${maxY}]`);
+
+        // Calculate relative distance between points
+        const maxRange = Math.max(maxX - minX, maxY - minY);
+        const baseRange = Math.max(0.01, maxRange);
+        const relativeSpread = maxRange / baseRange;
+
+        console.log(`Relative spread: ${relativeSpread}`);
+
+        // Calculate maxRelativeSpread based on aggressiveness
+        let maxRelativeSpread = 0.0001 * (aggressiveness > 0.0 ? Math.pow(5, aggressiveness) : 1);
+        if (aggressiveness > 3.5) {
+            const t = (aggressiveness - 3.5) / 0.5;
+            maxRelativeSpread = 0.03 + (0.02 * t);
+        }
+
+        // Calculate pixel spread threshold
+        const pixelSpreadThreshold = 1.0 + (aggressiveness * 2.0);
+
+        console.log(`Thresholds: maxRelativeSpread=${maxRelativeSpread}, pixelSpreadThreshold=${pixelSpreadThreshold}`);
+
+        // If points are close enough, average them
+        if (relativeSpread <= maxRelativeSpread) {
+            console.log('Points are close enough to average');
+            let sumReal = 0, sumImag = 0;
+            for (let i = 0; i < len; i++) {
+                sumReal += reals[i];
+                sumImag += imags[i];
+            }
+            return [{ 
+                real: sumReal / len, 
+                imag: sumImag / len 
+            }];
+        }
+
+        // Pre-allocate arrays for better performance
+        const downsampledReals = [];
+        const downsampledImags = [];
+        
+        // Helper function to compute pixel coordinates (optimized)
+        const rangeX = maxX - minX;
+        const rangeY = maxY - minY;
+        const pixelScale = outputSize;
+        
+        let currentGroup = {
+            sumReal: reals[0],
+            sumImag: imags[0],
+            count: 1,
+            lastReal: reals[0],
+            lastImag: imags[0],
+            pixel: {
+                x: Math.round(((reals[0] - minX) / rangeX) * pixelScale),
+                y: Math.round(((imags[0] - minY) / rangeY) * pixelScale)
+            }
+        };
+
+        // Process remaining points
+        for (let i = 1; i < len; i++) {
+            const real = reals[i];
+            const imag = imags[i];
+            const px = Math.round(((real - minX) / rangeX) * pixelScale);
+            const py = Math.round(((imag - minY) / rangeY) * pixelScale);
+
+            // Check if point is in same pixel group
+            if ((px === currentGroup.pixel.x && py === currentGroup.pixel.y) ||
+                (Math.abs(px - currentGroup.pixel.x) <= pixelSpreadThreshold &&
+                 Math.abs(py - currentGroup.pixel.y) <= pixelSpreadThreshold)) {
+                currentGroup.sumReal += real;
+                currentGroup.sumImag += imag;
+                currentGroup.count++;
+                currentGroup.lastReal = real;
+                currentGroup.lastImag = imag;
+                continue;
+            }
+
+            // Flush current group
+            downsampledReals.push(currentGroup.sumReal / currentGroup.count);
+            downsampledImags.push(currentGroup.sumImag / currentGroup.count);
+
+            // Calculate pixel gap
+            const dx = px - currentGroup.pixel.x;
+            const dy = py - currentGroup.pixel.y;
+            const pixelGap = Math.sqrt(dx * dx + dy * dy);
+
+            // Calculate interpolation threshold
+            let interpolationThreshold = 1.1 * Math.pow(2.5, aggressiveness);
+            if (aggressiveness > 3.5) {
+                const t = (aggressiveness - 3.5) / 0.5;
+                interpolationThreshold = 55.0 + (20.0 * t);
+            }
+
+            // Interpolate if needed
+            if (pixelGap > interpolationThreshold) {
+                let steps = Math.floor(pixelGap / Math.pow(2, Math.min(aggressiveness, 3.5)));
+                if (aggressiveness > 3.5) {
+                    const t = (aggressiveness - 3.5) / 0.5;
+                    steps = Math.floor(steps * (1.0 - (0.5 * t)));
+                }
+
+                for (let s = 1; s <= steps; s++) {
+                    const t = s / (steps + 1);
+                    const invT = 1 - t;
+                    downsampledReals.push(currentGroup.lastReal * invT + real * t);
+                    downsampledImags.push(currentGroup.lastImag * invT + imag * t);
+                }
+            }
+
+            // Start new group
+            currentGroup = {
+                sumReal: real,
+                sumImag: imag,
+                count: 1,
+                lastReal: real,
+                lastImag: imag,
+                pixel: { x: px, y: py }
+            };
+        }
+
+        // Flush final group
+        downsampledReals.push(currentGroup.sumReal / currentGroup.count);
+        downsampledImags.push(currentGroup.sumImag / currentGroup.count);
+
+        // Create final result array
+        const result = new Array(downsampledReals.length);
+        for (let i = 0; i < result.length; i++) {
+            result[i] = { real: downsampledReals[i], imag: downsampledImags[i] };
+        }
+
+        console.log(`Downsampled from ${len} to ${result.length} points`);
+        return result;
+    }
 }
 
 // Export for testing

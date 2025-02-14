@@ -5,7 +5,7 @@ import Stats from 'three/addons/libs/stats.module.js';
 
 export class ZetaVisualization {
     constructor(container) {
-        console.log('Initializing ZetaVisualization');
+        // console.log('Initializing ZetaVisualization');
         this.container = container;
         this.scene = new THREE.Scene();
 
@@ -97,18 +97,26 @@ export class ZetaVisualization {
         this.useParallelCalculation = false;
         this.useRiemannSiegel = false;
 
+        // Add downsampling options
+        this.useDownsampling = false;
+        this.downsamplingAggressiveness = 1.0;
+        this.pointCounts = {
+            original: 0,
+            downsampled: 0
+        };
+
         // Start animation loop
         this.animate();
 
         // Handle window resize
         window.addEventListener('resize', () => this.onWindowResize(), false);
         
-        console.log('ZetaVisualization initialized');
+        // console.log('ZetaVisualization initialized');
     }
 
     setAutoRotate(enabled) {
         // Remove auto-rotate functionality
-        console.log('Auto-rotate functionality has been removed');
+        // console.log('Auto-rotate functionality has been removed');
     }
 
     setGridVisible(visible) {
@@ -140,202 +148,104 @@ export class ZetaVisualization {
 
     // Add setters for calculation options
     setParallelCalculation(enabled) {
-        console.log('Setting parallel calculation:', enabled);
+        // console.log('Setting parallel calculation:', enabled);
         this.useParallelCalculation = enabled;
     }
 
     setRiemannSiegel(enabled) {
-        console.log('Calculate Riemann-Siegel:', enabled);
+        // console.log('Calculate Riemann-Siegel:', enabled);
         this.useRiemannSiegel = enabled;
     }
 
+    setDownsampling(enabled) {
+        // console.log('Setting downsampling:', enabled);
+        this.useDownsampling = enabled;
+    }
+
+    setDownsamplingAggressiveness(value) {
+        // console.log('Setting downsampling aggressiveness:', value);
+        this.downsamplingAggressiveness = value;
+    }
+
     async updateSpiral(real, index, formula, useNewImag = true) {
-        console.log('Updating spiral:', { 
-            real, 
-            index, 
-            formula, 
-            useNewImag,
-            useParallel: this.useParallelCalculation,
-            useRiemannSiegel: this.useRiemannSiegel
-        });
+        // console.log('Updating spiral:', { 
+        //     real, 
+        //     index, 
+        //     formula, 
+        //     useNewImag,
+        //     useParallel: this.useParallelCalculation,
+        //     useRiemannSiegel: this.useRiemannSiegel
+        // });
         
         try {
             // Calculate spiral points using selected method
-            const { points, zeta } = this.useParallelCalculation ?
+            let { points, zeta } = this.useParallelCalculation ?
                 await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag, this.useRiemannSiegel) :
                 await ZetaMath.calculateSpiral(real, index, formula, useNewImag, this.useRiemannSiegel);
 
-            console.log('Calculated points:', points.length, 'Zeta:', zeta);
+            // Store original point count
+            this.pointCounts.original = points.length;
+            this.pointCounts.downsampled = points.length;
+
+            // Apply downsampling if enabled
+            if (this.useDownsampling) {
+                // console.log('Downsampling enabled, converting points...');
+                // Convert points to complex format for downsampling
+                const complexPoints = points.map(p => ({ real: p.x, imag: p.y }));
+                // console.log('Points converted, downsampling...');
+                
+                // Perform downsampling
+                const downsampledPoints = ZetaMath.downsampleComplex(complexPoints, 1000, this.downsamplingAggressiveness);
+                // console.log('Downsampling complete, converting back...');
+                
+                // Convert back to xyz format
+                points = downsampledPoints.map(p => ({ x: p.real, y: p.imag, z: 0 }));
+                
+                // Update point counts after downsampling
+                this.pointCounts.downsampled = points.length;
+                
+                // console.log(`Downsampling results: ${this.pointCounts.original} -> ${this.pointCounts.downsampled} points`);
+            }
+
+            // Update the visualization with the new points
+            this.updateVisualizationGeometry(points);
 
             // Notify about zeta update
             if (this.onZetaUpdate) {
                 this.onZetaUpdate(zeta);
             }
-
-            // Remove old elements
-            if (this.spiralLine) {
-                this.scene.remove(this.spiralLine);
-            }
-            if (this.zetaPoint) {
-                this.scene.remove(this.zetaPoint);
-            }
-            if (this.targetGroup) {
-                this.scene.remove(this.targetGroup);
-            }
-            if (this.originGroup) {
-                this.scene.remove(this.originGroup);
-            }
-
-            // Create new spiral geometry
-            const geometry = new THREE.BufferGeometry();
-            const vertices = new Float32Array(points.length * 3);
-            
-            points.forEach((point, i) => {
-                vertices[i * 3] = point.x;
-                vertices[i * 3 + 1] = point.y;
-                vertices[i * 3 + 2] = point.z;
-            });
-            
-            geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-
-            // Create spiral line with thicker material
-            const material = new THREE.LineBasicMaterial({ 
-                color: 0x00ff00,
-                linewidth: 2 
-            });
-            this.spiralLine = new THREE.Line(geometry, material);
-            this.scene.add(this.spiralLine);
-
-            // Add a special marker for the first link
-            const firstLinkGeometry = new THREE.BufferGeometry();
-            const firstLinkVertices = new Float32Array([
-                points[0].x, points[0].y, points[0].z,
-                points[1].x, points[1].y, points[1].z
-            ]);
-            firstLinkGeometry.setAttribute('position', new THREE.BufferAttribute(firstLinkVertices, 3));
-            const firstLinkMaterial = new THREE.LineBasicMaterial({ color: 0xff00ff, linewidth: 3 });
-            const firstLink = new THREE.Line(firstLinkGeometry, firstLinkMaterial);
-            this.scene.add(firstLink);
-
-            // Create zeta point with crosshair target
-            const targetGroup = new THREE.Group();
-            
-            // Create ring
-            const ringGeometry = new THREE.RingGeometry(0.025, 0.05, 32);
-            const ringMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xff8000, // orange color
-                opacity: 0.5,
-                transparent: true,
-                side: THREE.DoubleSide 
-            });
-            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-            targetGroup.add(ring);
-
-            // Create crosshair lines
-            const linesMaterial = new THREE.LineBasicMaterial({ 
-                color: 0xff8000,
-                opacity: 0.5,
-                transparent: true
-            });
-
-            // Horizontal line
-            const horizontalGeometry = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(-0.025, 0, 0),
-                new THREE.Vector3(0.025, 0, 0)
-            ]);
-            const horizontalLine = new THREE.Line(horizontalGeometry, linesMaterial);
-            targetGroup.add(horizontalLine);
-
-            // Diagonal lines
-            const r = 0.05;
-            const diagonalGeometry1 = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(-r, -r, 0),
-                new THREE.Vector3(r, r, 0)
-            ]);
-            const diagonalLine1 = new THREE.Line(diagonalGeometry1, linesMaterial);
-            targetGroup.add(diagonalLine1);
-
-            const diagonalGeometry2 = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(-r, r, 0),
-                new THREE.Vector3(r, r, 0)
-            ]);
-            const diagonalLine2 = new THREE.Line(diagonalGeometry2, linesMaterial);
-            targetGroup.add(diagonalLine2);
-
-            const diagonalGeometry3 = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(-r, -r, 0),
-                new THREE.Vector3(r, -r, 0)
-            ]);
-            const diagonalLine3 = new THREE.Line(diagonalGeometry3, linesMaterial);
-            targetGroup.add(diagonalLine3);
-
-            // Add origin crosshair
-            const originGroup = new THREE.Group();
-            
-            // Origin ring
-            const originRingGeometry = new THREE.RingGeometry(0.025, 0.05, 32);
-            const originRingMaterial = new THREE.MeshBasicMaterial({ 
-                color: 0xff8000,
-                opacity: 0.25,
-                transparent: true,
-                side: THREE.DoubleSide 
-            });
-            const originRing = new THREE.Mesh(originRingGeometry, originRingMaterial);
-            originGroup.add(originRing);
-
-            // Origin cross
-            const originLinesMaterial = new THREE.LineBasicMaterial({ 
-                color: 0xff8000,
-                opacity: 0.25,
-                transparent: true
-            });
-            const originCrossSize = 0.1;
-            const originCrossGeometry = new THREE.BufferGeometry().setFromPoints([
-                new THREE.Vector3(-originCrossSize/2, 0, 0),
-                new THREE.Vector3(originCrossSize/2, 0, 0),
-                new THREE.Vector3(0, -originCrossSize/2, 0),
-                new THREE.Vector3(0, originCrossSize/2, 0)
-            ]);
-            const originCross = new THREE.LineSegments(originCrossGeometry, originLinesMaterial);
-            originGroup.add(originCross);
-
-            // Position the target at zeta
-            targetGroup.position.set(zeta.real, zeta.imag, 0);
-            this.scene.add(targetGroup);
-            this.scene.add(originGroup);
-
-            // Store references to groups for cleanup
-            this.targetGroup = targetGroup;
-            this.originGroup = originGroup;
-
-            // Update debug output
-            const debugOutput = document.getElementById('debug-output');
-            if (debugOutput) {
-                const firstLinkVector = {
-                    x: points[1].x - points[0].x,
-                    y: points[1].y - points[0].y
-                };
-                const firstLinkAngle = Math.atan2(firstLinkVector.y, firstLinkVector.x) * 180 / Math.PI;
-                
-                debugOutput.textContent = `
-Real: ${real}
-Index: ${index}
-Imag: ${ZetaMath.indexToImag(index, useNewImag)}
-Zeta: ${zeta.toString()}
-Points: ${points.length}
-First Link Vector: (${firstLinkVector.x.toFixed(4)}, ${firstLinkVector.y.toFixed(4)})
-First Link Angle: ${firstLinkAngle.toFixed(2)}°
-First Point: (${points[0].x.toFixed(4)}, ${points[0].y.toFixed(4)}, ${points[0].z.toFixed(4)})
-Second Point: (${points[1].x.toFixed(4)}, ${points[1].y.toFixed(4)}, ${points[1].z.toFixed(4)})
-Last Point: (${points[points.length-1].x.toFixed(4)}, ${points[points.length-1].y.toFixed(4)}, ${points[points.length-1].z.toFixed(4)})
-                `.trim();
-            }
-
-            // Adjust camera to fit the spiral
-            this.fitCameraToSpiral(points);
         } catch (error) {
             console.error('Error updating spiral:', error);
+            console.error('Stack:', error.stack);
         }
+    }
+
+    updateVisualizationGeometry(points) {
+        // Remove existing line if it exists
+        if (this.spiralLine) {
+            this.scene.remove(this.spiralLine);
+            this.spiralLine.geometry.dispose();
+            this.spiralLine.material.dispose();
+        }
+
+        // Create geometry from points
+        const geometry = new THREE.BufferGeometry();
+        const positions = new Float32Array(points.length * 3);
+        
+        // Fill positions array
+        for (let i = 0; i < points.length; i++) {
+            const point = points[i];
+            positions[i * 3] = point.x || point.real || 0;     // x or real
+            positions[i * 3 + 1] = point.y || point.imag || 0; // y or imag
+            positions[i * 3 + 2] = 0;                          // z
+        }
+        
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        
+        // Create and add the new line
+        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        this.spiralLine = new THREE.Line(geometry, material);
+        this.scene.add(this.spiralLine);
     }
 
     fitCameraToSpiral(points) {

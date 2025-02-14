@@ -82,6 +82,19 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Updating visualization with:', { index, real, formula, animValue });
         await visualization.updateSpiral(real, index, formula, true);
 
+        // Update debug output with point counts
+        const debugOutput = document.getElementById('debug-output');
+        if (debugOutput) {
+            const pointCountsInfo = `
+Points:
+  Original: ${visualization.pointCounts.original.toLocaleString()}
+  Downsampled: ${visualization.pointCounts.downsampled.toLocaleString()}
+  Reduction: ${((1 - visualization.pointCounts.downsampled / visualization.pointCounts.original) * 100).toFixed(1)}%
+
+`;
+            debugOutput.textContent = pointCountsInfo;
+        }
+
         // Continue animation loop
         if (animValue !== 0) {
             animationFrameId = requestAnimationFrame(updateVisualization);
@@ -158,6 +171,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     document.getElementById('riemann-siegel').addEventListener('change', (e) => {
         visualization.setRiemannSiegel(e.target.checked);
+    });
+
+    // Add event listeners
+    const downsamplingToggle = document.getElementById('downsampling-toggle');
+    const aggressivenessSlider = document.getElementById('aggressiveness-slider');
+    
+    downsamplingToggle.addEventListener('change', (e) => {
+        visualization.setDownsampling(e.target.checked);
+        // Trigger spiral update with current values
+        updateVisualization(performance.now());
+    });
+
+    aggressivenessSlider.addEventListener('input', (e) => {
+        const value = parseFloat(e.target.value);
+        visualization.setDownsamplingAggressiveness(value);
+        // Trigger spiral update with current values
+        updateVisualization(performance.now());
     });
 
     // Initial update
