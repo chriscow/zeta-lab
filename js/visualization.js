@@ -105,6 +105,10 @@ export class ZetaVisualization {
             downsampled: 0
         };
 
+        // Add step size configuration
+        this.useAdaptiveStep = true;
+        this.stepSizeFactor = 1.0;
+
         // Start animation loop
         this.animate();
 
@@ -167,21 +171,34 @@ export class ZetaVisualization {
         this.downsamplingAggressiveness = value;
     }
 
+    setAdaptiveStep(enabled) {
+        // console.log('Setting adaptive step:', enabled);
+        this.useAdaptiveStep = enabled;
+    }
+
+    setStepSizeFactor(factor) {
+        // console.log('Setting step size factor:', factor);
+        this.stepSizeFactor = factor;
+    }
+
     async updateSpiral(real, index, formula, useNewImag = true) {
-        // console.log('Updating spiral:', { 
-        //     real, 
-        //     index, 
-        //     formula, 
-        //     useNewImag,
-        //     useParallel: this.useParallelCalculation,
-        //     useRiemannSiegel: this.useRiemannSiegel
-        // });
+        const t0 = performance.now();
+        let t1, t2;
         
         try {
+            // Create step size configuration
+            const stepConfig = {
+                useAdaptive: this.useAdaptiveStep,
+                factor: this.stepSizeFactor
+            };
+
             // Calculate spiral points using selected method
             let { points, zeta } = this.useParallelCalculation ?
-                await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag, this.useRiemannSiegel) :
-                await ZetaMath.calculateSpiral(real, index, formula, useNewImag, this.useRiemannSiegel);
+                await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag, stepConfig) :
+                await ZetaMath.calculateSpiral(real, index, formula, useNewImag, stepConfig);
+
+            t1 = performance.now();
+            console.log(`[PERF] Spiral calculation: ${(t1 - t0).toFixed(2)}ms, Points: ${points.length}`);
 
             // Store original point count
             this.pointCounts.original = points.length;
@@ -189,26 +206,21 @@ export class ZetaVisualization {
 
             // Apply downsampling if enabled
             if (this.useDownsampling) {
-                // console.log('Downsampling enabled, converting points...');
-                // Convert points to complex format for downsampling
                 const complexPoints = points.map(p => ({ real: p.x, imag: p.y }));
-                // console.log('Points converted, downsampling...');
-                
-                // Perform downsampling
                 const downsampledPoints = ZetaMath.downsampleComplex(complexPoints, 1000, this.downsamplingAggressiveness);
-                // console.log('Downsampling complete, converting back...');
-                
-                // Convert back to xyz format
                 points = downsampledPoints.map(p => ({ x: p.real, y: p.imag, z: 0 }));
-                
-                // Update point counts after downsampling
                 this.pointCounts.downsampled = points.length;
                 
-                // console.log(`Downsampling results: ${this.pointCounts.original} -> ${this.pointCounts.downsampled} points`);
+                t2 = performance.now();
+                console.log(`[PERF] Downsampling: ${(t2 - t1).toFixed(2)}ms, Points reduced: ${this.pointCounts.original} -> ${points.length}`);
             }
 
             // Update the visualization with the new points
             this.updateVisualizationGeometry(points);
+            
+            const t3 = performance.now();
+            console.log(`[PERF] Geometry update: ${(t3 - (this.useDownsampling ? t2 : t1)).toFixed(2)}ms`);
+            console.log(`[PERF] Total time: ${(t3 - t0).toFixed(2)}ms`);
 
             // Notify about zeta update
             if (this.onZetaUpdate) {
@@ -221,6 +233,9 @@ export class ZetaVisualization {
     }
 
     updateVisualizationGeometry(points) {
+        console.log(`[RENDER] Creating geometry with ${points.length} points`);
+        const t0 = performance.now();
+
         // Remove existing line if it exists
         if (this.spiralLine) {
             this.scene.remove(this.spiralLine);
@@ -246,6 +261,9 @@ export class ZetaVisualization {
         const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
         this.spiralLine = new THREE.Line(geometry, material);
         this.scene.add(this.spiralLine);
+
+        const t1 = performance.now();
+        console.log(`[RENDER] Geometry creation took ${(t1 - t0).toFixed(2)}ms`);
     }
 
     fitCameraToSpiral(points) {

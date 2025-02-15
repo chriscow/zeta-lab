@@ -7,8 +7,9 @@ onmessage = function (e) {
     let running = { x: 0, y: 0 };
     for (const i of chunk) {
         const angle = imag * Math.log(i);
-        const dx = Math.cos(angle) / Math.pow(i, real);
-        const dy = -Math.sin(angle) / Math.pow(i, real);
+        const magnitude = 1 / Math.pow(i, real);
+        const dx = Math.cos(angle) * magnitude;
+        const dy = -Math.sin(angle) * magnitude;
         running.x += dx;
         running.y += dy;
         prefix.push({ x: running.x, y: running.y });

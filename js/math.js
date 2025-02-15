@@ -253,19 +253,24 @@ export class ZetaMath {
      * @param {number} index - The index used to calculate the imaginary part
      * @param {number} formula - The formula selection (currently only Riemann-Siegel is implemented)
      * @param {boolean} useNewImag - Whether to use the new formula for imaginary part calculation
+     * @param {Object} stepConfig - Configuration for step size calculation
+     * @param {boolean} stepConfig.useAdaptive - Whether to use adaptive step size
+     * @param {number} stepConfig.factor - Factor to adjust step size (0.1 to 2.0)
      * @returns {Promise<{points: Array<{x: number, y: number, z: number}>, zeta: Complex}>}
      */
-    static async calculateSpiral(real, index, formula, useNewImag = true) {
+    static async calculateSpiral(real, index, formula, useNewImag = true, stepConfig = { useAdaptive: true, factor: 1.0 }) {
         const imag = this.indexToImag(index, useNewImag);
         
         // Calculate the range needed for integration
         const totalRange = Math.floor(imag / Math.PI + 1);
-        const maxPoints = 65_000_000; // Cap maximum points for performance
         
-        // Adjust step size to stay within point limit
-        const stepSize = Math.max(1, totalRange / maxPoints);
+        // Use fixed step size of 1 for maximum accuracy
+        const stepSize = 1;
         
-        console.log(`Calculating spiral with imag=${imag}, totalRange=${totalRange}, stepSize=${stepSize}`);
+        console.log(`Calculating spiral with:
+            imag=${imag}
+            totalRange=${totalRange}
+            stepSize=${stepSize} (fixed for accuracy)`);
         
         // Initialize spiral construction
         const points = [];
@@ -295,12 +300,10 @@ export class ZetaMath {
             // Calculate polar coordinates
             const angle = imag * Math.log(i);
             const magnitude = 1 / Math.pow(i, real);
-            const cosVal = Math.cos(angle);
-            const sinVal = Math.sin(angle);
             
             // Convert to Cartesian coordinates
-            const x = Math.cos(imag * Math.log(i)) / Math.pow(i, real);
-            const y = -Math.sin(imag * Math.log(i)) / Math.pow(i, real);
+            const x = Math.cos(angle) * magnitude;
+            const y = -Math.sin(angle) * magnitude;
 
             // Update scaling bounds
             minVal = Math.min(minVal, x, y);
@@ -313,8 +316,6 @@ export class ZetaMath {
                 console.log('  angle (radians):', angle);
                 console.log('  angle (degrees):', (angle * 180 / Math.PI) % 360);
                 console.log('  magnitude:', magnitude);
-                console.log('  cos:', cosVal);
-                console.log('  sin:', sinVal);
                 console.log('  vector:', { x, y });
                 console.log('  position:', { x: start.x + x, y: start.y + y });
             }
@@ -373,16 +374,25 @@ export class ZetaMath {
      * @param {number} index - The index used to calculate the imaginary part
      * @param {number} formula - The formula selection (currently only Riemann-Siegel is implemented)
      * @param {boolean} useNewImag - Whether to use the new formula for imaginary part calculation
+     * @param {Object} stepConfig - Configuration for step size calculation
+     * @param {boolean} stepConfig.useAdaptive - Whether to use adaptive step size
+     * @param {number} stepConfig.factor - Factor to adjust step size (0.1 to 2.0)
      * @returns {Promise<{points: Array<{x: number, y: number, z: number}>, zeta: Complex, scale: {min: number, max: number}}>}
      */
-    static async calculateSpiralParallel(real, index, formula, useNewImag = true) {
+    static async calculateSpiralParallel(real, index, formula, useNewImag = true, stepConfig = { useAdaptive: true, factor: 1.0 }) {
         // Compute the imaginary part as before
         const imag = this.indexToImag(index, useNewImag);
         const totalRange = Math.floor(imag / Math.PI + 1);
-        const maxPoints = 65_000_000; // Cap maximum points for performance
-        const stepSize = Math.max(1, totalRange / maxPoints);
+        
+        // Use fixed step size of 1 for maximum accuracy
+        const stepSize = 1;
 
-        // Build an array of iteration values based on stepSize
+        console.log(`Parallel Spiral calculation with:
+            imag=${imag}
+            totalRange=${totalRange}
+            stepSize=${stepSize} (fixed for accuracy)`);
+
+        // Build an array of iteration values based on step size
         const iterationValues = [];
         for (let i = 1; i <= totalRange; i += stepSize) {
             iterationValues.push(i);
@@ -461,127 +471,115 @@ export class ZetaMath {
             return links;
         }
 
-        // Validate input format
-        if (!links[0].hasOwnProperty('real') || !links[0].hasOwnProperty('imag')) {
-            console.error('Invalid point format for downsampling:', links[0]);
-            return links;
+        if (debug) {
+            console.log(`Starting downsampleComplex with ${links.length} points, outputSize=${outputSize}, aggressiveness=${aggressiveness}`);
         }
 
-        console.log(`Starting downsample with ${links.length} points, outputSize=${outputSize}, aggressiveness=${aggressiveness}`);
-
-        // Create flat arrays for better performance
-        const len = links.length;
-        const reals = new Float64Array(len);
-        const imags = new Float64Array(len);
-        
-        // Populate arrays and find bounds in one pass
+        // Determine view bounds from the links
         let minX = links[0].real, maxX = links[0].real;
         let minY = links[0].imag, maxY = links[0].imag;
-        
-        for (let i = 0; i < len; i++) {
-            const real = links[i].real;
-            const imag = links[i].imag;
-            reals[i] = real;
-            imags[i] = imag;
-            
-            if (real < minX) minX = real;
-            if (real > maxX) maxX = real;
-            if (imag < minY) minY = imag;
-            if (imag > maxY) maxY = imag;
+        for (const link of links) {
+            minX = Math.min(minX, link.real);
+            maxX = Math.max(maxX, link.real);
+            minY = Math.min(minY, link.imag);
+            maxY = Math.max(maxY, link.imag);
         }
-
-        console.log(`Bounds: X=[${minX}, ${maxX}], Y=[${minY}, ${maxY}]`);
 
         // Calculate relative distance between points
         const maxRange = Math.max(maxX - minX, maxY - minY);
         const baseRange = Math.max(0.01, maxRange);
         const relativeSpread = maxRange / baseRange;
 
-        console.log(`Relative spread: ${relativeSpread}`);
+        // Scale the maxRelativeSpread based on aggressiveness
+        let maxRelativeSpread = 0.0001; // Base threshold at 0.01%
+        if (aggressiveness > 0.0) {
+            maxRelativeSpread *= Math.pow(5, aggressiveness);
+        }
 
-        // Calculate maxRelativeSpread based on aggressiveness
-        let maxRelativeSpread = 0.0001 * (aggressiveness > 0.0 ? Math.pow(5, aggressiveness) : 1);
+        // Add extra smoothing for values between 3.5 and 4.0
         if (aggressiveness > 3.5) {
             const t = (aggressiveness - 3.5) / 0.5;
             maxRelativeSpread = 0.03 + (0.02 * t);
         }
 
-        // Calculate pixel spread threshold
-        const pixelSpreadThreshold = 1.0 + (aggressiveness * 2.0);
+        // Also consider pixel-space proximity for grouping
+        let pixelSpreadThreshold = 1.0;
+        if (aggressiveness > 0.0) {
+            pixelSpreadThreshold += (aggressiveness * 2.0);
+        }
 
-        console.log(`Thresholds: maxRelativeSpread=${maxRelativeSpread}, pixelSpreadThreshold=${pixelSpreadThreshold}`);
-
-        // If points are close enough, average them
+        // If the relative spread is small enough, average all points
         if (relativeSpread <= maxRelativeSpread) {
-            console.log('Points are close enough to average');
-            let sumReal = 0, sumImag = 0;
-            for (let i = 0; i < len; i++) {
-                sumReal += reals[i];
-                sumImag += imags[i];
+            let sum = { real: 0, imag: 0 };
+            for (const link of links) {
+                sum.real += link.real;
+                sum.imag += link.imag;
             }
-            return [{ 
-                real: sumReal / len, 
-                imag: sumImag / len 
+            return [{
+                real: sum.real / links.length,
+                imag: sum.imag / links.length
             }];
         }
 
-        // Pre-allocate arrays for better performance
-        const downsampledReals = [];
-        const downsampledImags = [];
-        
-        // Helper function to compute pixel coordinates (optimized)
-        const rangeX = maxX - minX;
-        const rangeY = maxY - minY;
-        const pixelScale = outputSize;
-        
-        let currentGroup = {
-            sumReal: reals[0],
-            sumImag: imags[0],
-            count: 1,
-            lastReal: reals[0],
-            lastImag: imags[0],
-            pixel: {
-                x: Math.round(((reals[0] - minX) / rangeX) * pixelScale),
-                y: Math.round(((imags[0] - minY) / rangeY) * pixelScale)
-            }
+        // Helper to compute pixel coordinate for a link
+        const pixelForLink = (link) => {
+            const normalizedX = (link.real - minX) / (maxX - minX);
+            const normalizedY = (link.imag - minY) / (maxY - minY);
+            const px = Math.round(normalizedX * outputSize);
+            const py = Math.round(normalizedY * outputSize);
+            return { px, py };
         };
 
-        // Process remaining points
-        for (let i = 1; i < len; i++) {
-            const real = reals[i];
-            const imag = imags[i];
-            const px = Math.round(((real - minX) / rangeX) * pixelScale);
-            const py = Math.round(((imag - minY) / rangeY) * pixelScale);
+        // Calculate interpolation threshold based on aggressiveness
+        let interpolationThreshold = 1.1 * Math.pow(2.5, aggressiveness);
+        if (aggressiveness > 3.5) {
+            const t = (aggressiveness - 3.5) / 0.5;
+            interpolationThreshold = 55.0 + (20.0 * t);
+        }
 
-            // Check if point is in same pixel group
-            if ((px === currentGroup.pixel.x && py === currentGroup.pixel.y) ||
-                (Math.abs(px - currentGroup.pixel.x) <= pixelSpreadThreshold &&
-                 Math.abs(py - currentGroup.pixel.y) <= pixelSpreadThreshold)) {
-                currentGroup.sumReal += real;
-                currentGroup.sumImag += imag;
+        const downsampled = [];
+        
+        // Initialize with first point
+        const { px: initPx, py: initPy } = pixelForLink(links[0]);
+        let currentGroup = {
+            sum: { real: links[0].real, imag: links[0].imag },
+            count: 1,
+            pixelX: initPx,
+            pixelY: initPy,
+            lastLink: links[0]
+        };
+
+        // Helper to flush a group
+        const flushGroup = (group) => ({
+            real: group.sum.real / group.count,
+            imag: group.sum.imag / group.count
+        });
+
+        // Process all points sequentially
+        for (let i = 1; i < links.length; i++) {
+            const link = links[i];
+            const { px, py } = pixelForLink(link);
+
+            // Check if this point belongs to current group
+            if (px === currentGroup.pixelX && py === currentGroup.pixelY ||
+                (Math.abs(px - currentGroup.pixelX) <= pixelSpreadThreshold &&
+                 Math.abs(py - currentGroup.pixelY) <= pixelSpreadThreshold)) {
+                currentGroup.sum.real += link.real;
+                currentGroup.sum.imag += link.imag;
                 currentGroup.count++;
-                currentGroup.lastReal = real;
-                currentGroup.lastImag = imag;
+                currentGroup.lastLink = link;
                 continue;
             }
 
-            // Flush current group
-            downsampledReals.push(currentGroup.sumReal / currentGroup.count);
-            downsampledImags.push(currentGroup.sumImag / currentGroup.count);
+            // Group changed: flush current group
+            const avg = flushGroup(currentGroup);
+            downsampled.push(avg);
 
-            // Calculate pixel gap
-            const dx = px - currentGroup.pixel.x;
-            const dy = py - currentGroup.pixel.y;
+            // Check for interpolation
+            const dx = px - currentGroup.pixelX;
+            const dy = py - currentGroup.pixelY;
             const pixelGap = Math.sqrt(dx * dx + dy * dy);
 
-            // Calculate interpolation threshold
-            let interpolationThreshold = 1.1 * Math.pow(2.5, aggressiveness);
-            if (aggressiveness > 3.5) {
-                const t = (aggressiveness - 3.5) / 0.5;
-                interpolationThreshold = 55.0 + (20.0 * t);
-            }
-
-            // Interpolate if needed
             if (pixelGap > interpolationThreshold) {
                 let steps = Math.floor(pixelGap / Math.pow(2, Math.min(aggressiveness, 3.5)));
                 if (aggressiveness > 3.5) {
@@ -591,35 +589,32 @@ export class ZetaMath {
 
                 for (let s = 1; s <= steps; s++) {
                     const t = s / (steps + 1);
-                    const invT = 1 - t;
-                    downsampledReals.push(currentGroup.lastReal * invT + real * t);
-                    downsampledImags.push(currentGroup.lastImag * invT + imag * t);
+                    downsampled.push({
+                        real: currentGroup.lastLink.real * (1 - t) + link.real * t,
+                        imag: currentGroup.lastLink.imag * (1 - t) + link.imag * t
+                    });
                 }
             }
 
             // Start new group
             currentGroup = {
-                sumReal: real,
-                sumImag: imag,
+                sum: { real: link.real, imag: link.imag },
                 count: 1,
-                lastReal: real,
-                lastImag: imag,
-                pixel: { x: px, y: py }
+                pixelX: px,
+                pixelY: py,
+                lastLink: link
             };
         }
 
         // Flush final group
-        downsampledReals.push(currentGroup.sumReal / currentGroup.count);
-        downsampledImags.push(currentGroup.sumImag / currentGroup.count);
+        const finalAvg = flushGroup(currentGroup);
+        downsampled.push(finalAvg);
 
-        // Create final result array
-        const result = new Array(downsampledReals.length);
-        for (let i = 0; i < result.length; i++) {
-            result[i] = { real: downsampledReals[i], imag: downsampledImags[i] };
+        if (debug) {
+            console.log(`Downsampled ${links.length} points to ${downsampled.length} points`);
         }
 
-        console.log(`Downsampled from ${len} to ${result.length} points`);
-        return result;
+        return downsampled;
     }
 }
 
