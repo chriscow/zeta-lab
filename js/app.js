@@ -50,13 +50,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Update function
         async function updateVisualization(timestamp) {
-            const index = parseFloat(elements.indexInput.value);
+            const index = Math.min(parseFloat(elements.indexInput.value), 2000);
             const real = parseFloat(elements.realInput.value);
             const formula = parseInt(elements.formulaSelect.value);
             
+            console.log('DEBUG: index:', index, 'real:', real, 'formula:', formula); // Debugging log
+
             if (isNaN(index) || isNaN(real)) {
                 console.error('Invalid input values:', { index, real });
                 return;
+            }
+
+            // Update input value if it was capped
+            if (parseFloat(elements.indexInput.value) > 2000) {
+                elements.indexInput.value = "2000";
+                elements.indexSlider.value = "2000";
             }
 
             // Handle animation
