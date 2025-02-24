@@ -55,31 +55,40 @@
                 </label>
             </div>
 
-            <div class="control-group">
-                <label class="checkbox-container">
-                    <input type="checkbox" id="downsampling-toggle" name="downsampling-toggle">
-                    <span class="checkbox-label">Enable Downsampling</span>
-                </label>
-
+            <div class="optimization-controls">
+                <h3>Optimization Settings</h3>
+                
                 <div class="control-group">
-                    <label for="aggressiveness-slider">Downsampling Aggressiveness</label>
-                    <input type="range" id="aggressiveness-slider" min="0" max="4" step="0.1" value="1.0">
-                    <div class="slider-labels">
-                        <span>Minimal</span>
-                        <span>Standard</span>
-                        <span>Maximum</span>
+                    <label class="checkbox-container">
+                        <input type="checkbox" id="downsampling-toggle" name="downsampling-toggle">
+                        <span class="checkbox-label">Enable Downsampling</span>
+                    </label>
+
+                    <div class="control-group">
+                        <label for="aggressiveness-slider">Downsampling Aggressiveness</label>
+                        <input type="range" id="aggressiveness-slider" min="0" max="4" step="0.1" value="1.0">
+                        <div class="slider-labels">
+                            <span>Minimal</span>
+                            <span>Standard</span>
+                            <span>Maximum</span>
+                        </div>
+                    </div>
+
+                    <div class="control-group">
+                        <label for="world-threshold">World Distance Threshold</label>
+                        <input type="range" id="world-threshold" min="0.01" max="1" step="0.01" value="0.1">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="screen-threshold">Screen Distance Threshold</label>
+                        <input type="range" id="screen-threshold" min="0.1" max="5" step="0.1" value="1.0">
+                    </div>
+
+                    <div class="control-group">
+                        <label for="line-width">Line Width (WebGL limited)</label>
+                        <input type="range" id="line-width" min="1" max="3" step="1" value="1">
                     </div>
                 </div>
-
-                <label class="checkbox-container">
-                    <input type="checkbox" id="parallel-calculation" name="parallel-calculation">
-                    <span class="checkbox-label">Use Parallel Spiral</span>
-                </label>
-                
-                <label class="checkbox-container">
-                    <input type="checkbox" id="riemann-siegel" name="riemann-siegel">
-                    <span class="checkbox-label">Calculate Riemann-Siegel</span>
-                </label>
             </div>
 
             <div class="info-panel">
@@ -93,6 +102,16 @@
                         <strong>Zeta Value:</strong>
                         <span id="zeta-value">0</span>
                     </div>
+                </div>
+            </div>
+
+            <div class="debug-panel">
+                <h3>Performance Metrics</h3>
+                <div id="perf-metrics">
+                    <div>Original Points: <span id="original-points">0</span></div>
+                    <div>Downsampled Points: <span id="downsampled-points">0</span></div>
+                    <div>Frame Time: <span id="frame-time">0</span>ms</div>
+                    <div>Generation Time: <span id="gen-time">0</span>ms</div>
                 </div>
             </div>
         </div>
@@ -130,6 +149,26 @@
     .checkbox-label {
         margin-left: 8px;
         user-select: none;
+    }
+
+    .optimization-controls {
+        border: 1px solid #ccc;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 4px;
+    }
+
+    .debug-panel {
+        background: rgba(0, 0, 0, 0.8);
+        color: #fff;
+        padding: 1rem;
+        margin: 1rem 0;
+        border-radius: 4px;
+        font-family: monospace;
+    }
+
+    #perf-metrics > div {
+        margin: 0.5rem 0;
     }
     </style>
 </body>

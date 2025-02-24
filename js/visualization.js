@@ -5,7 +5,12 @@ import Stats from 'three/addons/libs/stats.module.js';
 
 export class ZetaVisualization {
     constructor(container) {
-        // console.log('Initializing ZetaVisualization');
+        if (!container) {
+            console.error('Container element not found');
+            return;
+        }
+
+        console.log('Initializing ZetaVisualization');
         this.container = container;
         this.scene = new THREE.Scene();
 
@@ -37,23 +42,20 @@ export class ZetaVisualization {
         // Set renderer with alpha for transparent background
         this.renderer = new THREE.WebGLRenderer({ 
             antialias: true,
-            alpha: true 
+            alpha: true,
+            powerPreference: "high-performance"
         });
         this.renderer.setSize(container.clientWidth, container.clientHeight);
         this.renderer.setClearColor(0x000000, 0.1);
         container.appendChild(this.renderer.domElement);
 
+        // Optional: Disable v-sync (might cause screen tearing)
+        // this.renderer.setAnimationLoop(this.render.bind(this));
+
         // Setup camera for perfect top-down view
         this.camera.position.set(0, 0, 10);
         this.camera.up.set(0, 1, 0); // Ensure up vector is aligned with Y axis
         this.camera.lookAt(0, 0, 0);
-
-        // Add lights
-        // const ambientLight = new THREE.AmbientLight(0x404040);
-        // const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-        // directionalLight.position.set(1, 1, 1);
-        // this.scene.add(ambientLight);
-        // this.scene.add(directionalLight);
 
         // Add grid helper
         const size = 10;
@@ -100,22 +102,23 @@ export class ZetaVisualization {
         // Add downsampling options
         this.useDownsampling = false;
         this.downsamplingAggressiveness = 1.0;
-        this.pointCounts = {
-            original: 0,
-            downsampled: 0
-        };
+        this.worldDistanceThreshold = 0.1;
+        this.screenDistanceThreshold = 1.0;
+        this.screenCheckInterval = 2;
+        this.forceIncludeCount = 1000;
+        this.lineWidth = 1;
 
         // Add step size configuration
         this.useAdaptiveStep = true;
         this.stepSizeFactor = 1.0;
 
-        // Start animation loop
+        // Start animation loop using standard requestAnimationFrame
         this.animate();
 
         // Handle window resize
         window.addEventListener('resize', () => this.onWindowResize(), false);
         
-        // console.log('ZetaVisualization initialized');
+        console.log('ZetaVisualization initialized');
     }
 
     setAutoRotate(enabled) {
@@ -142,12 +145,18 @@ export class ZetaVisualization {
         this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
     }
 
-    animate() {
-        requestAnimationFrame(() => this.animate());
+    // Separate render method for better organization
+    render() {
         this.stats.begin();
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
         this.stats.end();
+    }
+
+    // Standard animation loop
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        this.render();
     }
 
     // Add setters for calculation options
@@ -183,49 +192,43 @@ export class ZetaVisualization {
 
     async updateSpiral(real, index, formula, useNewImag = true) {
         const t0 = performance.now();
-        let t1, t2;
         
         try {
-            // Create step size configuration
-            const stepConfig = {
-                useAdaptive: this.useAdaptiveStep,
-                factor: this.stepSizeFactor
+            // Create configuration object
+            const options = {
+                downsamplingEnabled: this.useDownsampling,
+                downsamplingAggressiveness: this.downsamplingAggressiveness,
+                worldDistanceThreshold: this.worldDistanceThreshold,
+                screenDistanceThreshold: this.screenDistanceThreshold,
+                screenCheckInterval: this.screenCheckInterval,
+                forceIncludeCount: this.forceIncludeCount
             };
 
-            // Calculate spiral points using selected method
-            let { points, zeta } = this.useParallelCalculation ?
-                await ZetaMath.calculateSpiralParallel(real, index, formula, useNewImag, stepConfig) :
-                await ZetaMath.calculateSpiral(real, index, formula, useNewImag, stepConfig);
+            // Calculate spiral points
+            const { points, zeta } = ZetaMath.calculateSpiral(real, index, formula, useNewImag, options);
 
-            t1 = performance.now();
+            const t1 = performance.now();
             console.log(`[PERF] Spiral calculation: ${(t1 - t0).toFixed(2)}ms, Points: ${points.length}`);
 
-            // Store original point count
-            this.pointCounts.original = points.length;
-            this.pointCounts.downsampled = points.length;
-
-            // Apply downsampling if enabled
-            if (this.useDownsampling) {
-                const complexPoints = points.map(p => ({ real: p.x, imag: p.y }));
-                const downsampledPoints = ZetaMath.downsampleComplex(complexPoints, 1000, this.downsamplingAggressiveness);
-                points = downsampledPoints.map(p => ({ x: p.real, y: p.imag, z: 0 }));
-                this.pointCounts.downsampled = points.length;
-                
-                t2 = performance.now();
-                console.log(`[PERF] Downsampling: ${(t2 - t1).toFixed(2)}ms, Points reduced: ${this.pointCounts.original} -> ${points.length}`);
+            // Update performance metrics
+            if (this.onZetaUpdate) {
+                this.onZetaUpdate({
+                    zeta,
+                    performance: {
+                        totalTime: t1 - t0,
+                        pointCount: points.length,
+                        downsampledCount: points.length
+                    }
+                });
             }
 
-            // Update the visualization with the new points
+            // Update visualization geometry
             this.updateVisualizationGeometry(points);
             
-            const t3 = performance.now();
-            console.log(`[PERF] Geometry update: ${(t3 - (this.useDownsampling ? t2 : t1)).toFixed(2)}ms`);
-            console.log(`[PERF] Total time: ${(t3 - t0).toFixed(2)}ms`);
+            const t2 = performance.now();
+            console.log(`[PERF] Geometry update: ${(t2 - t1).toFixed(2)}ms`);
+            console.log(`[PERF] Total time: ${(t2 - t0).toFixed(2)}ms`);
 
-            // Notify about zeta update
-            if (this.onZetaUpdate) {
-                this.onZetaUpdate(zeta);
-            }
         } catch (error) {
             console.error('Error updating spiral:', error);
             console.error('Stack:', error.stack);
@@ -233,9 +236,14 @@ export class ZetaVisualization {
     }
 
     updateVisualizationGeometry(points) {
-        console.log(`[RENDER] Creating geometry with ${points.length} points`);
-        const t0 = performance.now();
+        if (!points || points.length === 0) {
+            console.error('No points provided for visualization');
+            return;
+        }
 
+        console.time('updateVisualizationGeometry');
+        console.log(`Creating geometry with ${points.length} points`);
+        
         // Remove existing line if it exists
         if (this.spiralLine) {
             this.scene.remove(this.spiralLine);
@@ -243,27 +251,32 @@ export class ZetaVisualization {
             this.spiralLine.material.dispose();
         }
 
-        // Create geometry from points
+        // Create optimized geometry
         const geometry = new THREE.BufferGeometry();
         const positions = new Float32Array(points.length * 3);
         
-        // Fill positions array
+        // Fill positions directly
         for (let i = 0; i < points.length; i++) {
-            const point = points[i];
-            positions[i * 3] = point.x || point.real || 0;     // x or real
-            positions[i * 3 + 1] = point.y || point.imag || 0; // y or imag
-            positions[i * 3 + 2] = 0;                          // z
+            positions[i * 3] = points[i].x;
+            positions[i * 3 + 1] = points[i].y;
+            positions[i * 3 + 2] = 0;
         }
         
         geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
         
-        // Create and add the new line
-        const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+        // Use Line for continuous line rendering
+        const material = new THREE.LineBasicMaterial({ 
+            color: 0xffffff,
+            linewidth: this.lineWidth
+        });
+        
         this.spiralLine = new THREE.Line(geometry, material);
         this.scene.add(this.spiralLine);
-
-        const t1 = performance.now();
-        console.log(`[RENDER] Geometry creation took ${(t1 - t0).toFixed(2)}ms`);
+        
+        // Fit camera to show the entire spiral
+        this.fitCameraToSpiral(points);
+        
+        console.timeEnd('updateVisualizationGeometry');
     }
 
     fitCameraToSpiral(points) {

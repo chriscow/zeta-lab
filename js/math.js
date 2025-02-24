@@ -161,307 +161,173 @@ export class ZetaMath {
 
     /**
      * reimannSiegel implements the Riemann-Siegel formula for calculating ζ(s).
-     * This is a parallel implementation that distributes the calculation across multiple Web Workers.
+     * Single-threaded implementation with optimized memory usage.
      * The formula consists of three main parts:
      * 1. Main sum up to v = floor(sqrt(t/2π))
      * 2. Correction term using the R function
      * 3. Final multiplication by e^(-iV(t))
      * 
      * @param {Complex} s - The input point s = σ + it
-     * @returns {Promise<Complex>} The calculated value of ζ(s)
+     * @returns {Complex} The calculated value of ζ(s)
      */
-    static async reimannSiegel(s) {
+    static reimannSiegel(s) {
+        console.time('reimannSiegel');
         const t = s.imag;
+        console.log(`[DEBUG] Computing Riemann-Siegel with t = ${t}`);
+        
+        
         // Calculate the number of terms needed
         const v = Math.floor(Math.sqrt(t / (2 * Math.PI)));
+        console.log(`[DEBUG] Computing Riemann-Siegel with ${v} terms`);
         
-        // Initialize parallel processing
-        const NUM_WORKERS = Math.max(navigator.hardwareConcurrency || 4, 8);
-        const chunkSize = Math.ceil(v / NUM_WORKERS);
-        const workers = [];
-        const promises = [];
-        const results = new Array(NUM_WORKERS);
-        
-        console.log(`Parallelizing Riemann-Siegel calculation with ${NUM_WORKERS} workers`);
-        console.log(`Total terms: ${v}, chunk size: ${chunkSize}`);
-        
-        // Distribute work across workers
-        for (let i = 0; i < NUM_WORKERS; i++) {
-            const startK = i * chunkSize;
-            const endK = Math.min((i + 1) * chunkSize, v);
-            
-            const worker = new Worker('js/riemann-worker.js');
-            workers.push(worker);
-            
-            promises.push(new Promise(resolve => {
-                worker.onmessage = e => {
-                    results[e.data.chunkId] = e.data;
-                    resolve(e.data);
-                };
-            }));
-            
-            worker.postMessage({ 
-                startK, 
-                endK, 
-                t,
-                chunkId: i 
-            });
-        }
-        
-        // Wait for all calculations to complete
-        await Promise.all(promises);
-        
-        // Cleanup workers
-        workers.forEach(w => w.terminate());
-        
-        // Combine results in order to maintain accuracy
+        // Pre-allocate arrays for better memory usage
         let sum = 0;
-        const allTerms = [];
         
-        for (const result of results) {
-            if (result) {
-                allTerms.push(...result.terms);
-                sum += result.partialSum;
-            }
+        // Main sum calculation
+        console.time('mainSum');
+        for (let k = 0; k < v; k++) {
+            const term = Math.cos(this.V(t) - t * Math.log(k + 1)) / Math.sqrt(k + 1);
+            sum += term;
         }
+        console.timeEnd('mainSum');
         
         sum *= 2; // Double the sum as per formula
         
-        console.log(`Parallel calculation complete. Total terms: ${allTerms.length}`);
-        
         // Calculate the correction term
+        console.time('correctionTerm');
         const T = Math.sqrt(t / (2 * Math.PI)) - v;
         const phi = Math.cos(2 * Math.PI * (T * T - T - 1.0 / 16.0)) / Math.cos(2 * Math.PI * T);
         const c0 = phi;
         const b = Math.pow(-1, v - 1) * Math.pow(2 * Math.PI / t, 0.25) * c0;
         const Z = sum + b;
+        console.timeEnd('correctionTerm');
         
         // Apply the phase factor
+        console.time('phaseFactor');
         const angle = -this.V(t);
-        return new Complex(
+        const result = new Complex(
             Z * Math.cos(angle),
             Z * Math.sin(angle)
         );
+        console.timeEnd('phaseFactor');
+        
+        console.timeEnd('reimannSiegel');
+        return result;
     }
 
     /**
      * calculateSpiral generates points for visualizing the Riemann Zeta function.
-     * The spiral is constructed by calculating vectors from each point to the next,
-     * following the path of integration used in the Riemann-Siegel formula.
+     * Single-threaded implementation with memory optimization and downsampling.
      * 
-     * @param {number} real - The real part of the input (σ)
-     * @param {number} index - The index used to calculate the imaginary part
-     * @param {number} formula - The formula selection (currently only Riemann-Siegel is implemented)
-     * @param {boolean} useNewImag - Whether to use the new formula for imaginary part calculation
-     * @param {Object} stepConfig - Configuration for step size calculation
-     * @param {boolean} stepConfig.useAdaptive - Whether to use adaptive step size
-     * @param {number} stepConfig.factor - Factor to adjust step size (0.1 to 2.0)
-     * @returns {Promise<{points: Array<{x: number, y: number, z: number}>, zeta: Complex}>}
+     * @param {number} real - Real part of the input
+     * @param {number} index - Index for imaginary part calculation
+     * @param {number} formula - Formula selection (0 for RS, 1 for EM)
+     * @param {boolean} useNewImag - Whether to use new imaginary formula
+     * @param {Object} options - Configuration options
+     * @returns {Object} Generated points and zeta value
      */
-    static async calculateSpiral(real, index, formula, useNewImag = true, stepConfig = { useAdaptive: true, factor: 1.0 }) {
+    static calculateSpiral(real, index, formula, useNewImag = true, options = {}) {
+        console.time('calculateSpiral');
+        const {
+            downsamplingEnabled = false,
+            downsamplingAggressiveness = 1.0,
+            worldDistanceThreshold = 0.1,
+            screenDistanceThreshold = 1.0,
+            screenCheckInterval = 2,
+            forceIncludeCount = 1000
+        } = options;
+
+        // Calculate imaginary part
         const imag = this.indexToImag(index, useNewImag);
-        
-        // Calculate the range needed for integration
-        const totalRange = Math.floor(imag / Math.PI + 1);
-        
-        // Use fixed step size of 1 for maximum accuracy
-        const stepSize = 1;
-        
-        console.log(`Calculating spiral with:
-            imag=${imag}
-            totalRange=${totalRange}
-            stepSize=${stepSize} (fixed for accuracy)`);
-        
-        // Initialize spiral construction
-        const points = [];
-        let start = { x: 0, y: 0, z: 0 };
-        points.push(start);
+        console.log(`[DEBUG] Calculating spiral for s = ${real} + ${imag}i`);
 
-        // Track scaling factors for visualization
-        let minVal = 0, maxVal = 0;
-        
-        // Calculate the Zeta value at the target point
-        let zeta;
-        switch (formula) {
-            case 0: // Reimann-Siegel
-                zeta = await this.reimannSiegel(new Complex(real, imag));
-                break;
-            default:
-                zeta = await this.reimannSiegel(new Complex(real, imag));
-        }
+        // Calculate the number of terms needed
+        // const t = imag;
+        // const spiralLength = t; //Math.floor(Math.sqrt(t / (2 * Math.PI)));
+        var middleIndex = (2 * index * (index + 1)) / (2 * 0 + 1) + 1 / (3 * (2 * 0 + 1)) - 1;
+        var spiralLength = middleIndex + 2;
+        spiralLength = Math.max(spiralLength, 17000);
+        console.log(`[DEBUG] Calculating spiral for ${spiralLength} terms`);
 
-        // Debug output for verification
-        const debugPoints = 5;
-        console.log('\nSpiral Construction Debug:');
-        console.log('imag:', imag);
-        
-        // Construct the spiral point by point
-        for (let i = 1; i <= totalRange; i += stepSize) {
-            // Calculate polar coordinates
+        // Pre-allocate arrays for better memory usage
+        const points = new Array(forceIncludeCount);
+        let runningSum = { x: 0, y: 0 };
+        let pointCount = 0;
+
+        // Force include first N points
+        console.time('forceIncludePoints');
+        for (let i = 1; i <= Math.min(forceIncludeCount, spiralLength); i++) {
             const angle = imag * Math.log(i);
             const magnitude = 1 / Math.pow(i, real);
-            
-            // Convert to Cartesian coordinates
-            const x = Math.cos(angle) * magnitude;
-            const y = -Math.sin(angle) * magnitude;
-
-            // Update scaling bounds
-            minVal = Math.min(minVal, x, y);
-            maxVal = Math.max(maxVal, x, y);
-
-            // Detailed debug output for first few points
-            if (points.length <= debugPoints) {
-                console.log(`\nPoint ${points.length}:`);
-                console.log('  i:', i);
-                console.log('  angle (radians):', angle);
-                console.log('  angle (degrees):', (angle * 180 / Math.PI) % 360);
-                console.log('  magnitude:', magnitude);
-                console.log('  vector:', { x, y });
-                console.log('  position:', { x: start.x + x, y: start.y + y });
-            }
-            
-            // Add point to spiral
-            const end = {
-                x: start.x + x,
-                y: start.y + y,
-                z: 0
-            };
-            points.push(end);
-            start = end;
+            const dx = Math.cos(angle) * magnitude;
+            const dy = -Math.sin(angle) * magnitude;
+            runningSum.x += dx;
+            runningSum.y += dy;
+            points[pointCount++] = { x: runningSum.x, y: runningSum.y };
         }
+        console.timeEnd('forceIncludePoints');
 
-        // Log final results for verification
-        console.log('\nFinal Values:');
-        console.log('Final point:', points[points.length - 1]);
-        console.log('Zeta value:', { real: zeta.real, imag: zeta.imag });
+        // Calculate remaining points with downsampling
+        console.time('remainingPoints');
+        let lastIncluded = points[pointCount - 1];
+        let lastScreenPos = null;
 
-        // Additional debug info for spiral direction
-        if (points.length >= 3) {
-            console.log('\nSpiral Summary:');
-            console.log('First link vector:', points[1].x - points[0].x, points[1].y - points[0].y);
-            console.log('First point:', points[0]);
-            console.log('Second point:', points[1]);
-            console.log('Scale range:', { min: minVal, max: maxVal });
-            console.log('Total points:', points.length);
-            console.log('Final i value:', totalRange);
-            console.log('Final point:', points[points.length - 1]);
+        for (let i = forceIncludeCount + 1; i < spiralLength; i++) {
+            const angle = imag * Math.log(i);
+            const magnitude = 1 / Math.pow(i, real);
+            const dx = Math.cos(angle) * magnitude;
+            const dy = -Math.sin(angle) * magnitude;
+            runningSum.x += dx;
+            runningSum.y += dy;
             
-            // Calculate and log spiral rotation
-            const firstAngle = Math.atan2(points[1].y - points[0].y, points[1].x - points[0].x);
-            const secondAngle = Math.atan2(points[2].y - points[1].y, points[2].x - points[1].x);
-            console.log('\nSpiral Direction:');
-            console.log('First segment angle (degrees):', (firstAngle * 180 / Math.PI) % 360);
-            console.log('Second segment angle (degrees):', (secondAngle * 180 / Math.PI) % 360);
-            console.log('Angle change:', ((secondAngle - firstAngle) * 180 / Math.PI) % 360);
-        }
-
-        return { 
-            points, 
-            zeta,
-            scale: {
-                min: minVal,
-                max: maxVal
+            const current = { x: runningSum.x, y: runningSum.y };
+            
+            if (!downsamplingEnabled) {
+                points[pointCount++] = current;
+                continue;
             }
-        };
-    }
 
-    /**
-     * calculateSpiralParallel generates points for visualizing the Riemann Zeta function
-     * in parallel. It splits the independent delta calculations across multiple
-     * Web Workers and then reconstructs the continuous spiral by performing a prefix sum.
-     *
-     * @param {number} real - The real part of the input (σ)
-     * @param {number} index - The index used to calculate the imaginary part
-     * @param {number} formula - The formula selection (currently only Riemann-Siegel is implemented)
-     * @param {boolean} useNewImag - Whether to use the new formula for imaginary part calculation
-     * @param {Object} stepConfig - Configuration for step size calculation
-     * @param {boolean} stepConfig.useAdaptive - Whether to use adaptive step size
-     * @param {number} stepConfig.factor - Factor to adjust step size (0.1 to 2.0)
-     * @returns {Promise<{points: Array<{x: number, y: number, z: number}>, zeta: Complex, scale: {min: number, max: number}}>}
-     */
-    static async calculateSpiralParallel(real, index, formula, useNewImag = true, stepConfig = { useAdaptive: true, factor: 1.0 }) {
-        // Compute the imaginary part as before
-        const imag = this.indexToImag(index, useNewImag);
-        const totalRange = Math.floor(imag / Math.PI + 1);
+            // World-space check first (cheaper)
+            const worldDist = Math.hypot(current.x - lastIncluded.x, current.y - lastIncluded.y);
+            if (worldDist > worldDistanceThreshold * (1 + downsamplingAggressiveness)) {
+                points[pointCount++] = current;
+                lastIncluded = current;
+                continue;
+            }
+
+            // Screen-space check (more expensive, do less frequently)
+            if (i % screenCheckInterval === 0) {
+                const currentScreen = { x: current.x * 100, y: current.y * 100 }; // Simple screen projection
+                if (lastScreenPos) {
+                    const screenDist = Math.hypot(
+                        currentScreen.x - lastScreenPos.x,
+                        currentScreen.y - lastScreenPos.y
+                    );
+                    if (screenDist > screenDistanceThreshold * (1 + downsamplingAggressiveness)) {
+                        points[pointCount++] = current;
+                        lastIncluded = current;
+                        lastScreenPos = currentScreen;
+                    }
+                } else {
+                    lastScreenPos = currentScreen;
+                }
+            }
+        }
+        console.timeEnd('remainingPoints');
+
+        // Trim array to actual size
+        const finalPoints = points.slice(0, pointCount);
         
-        // Use fixed step size of 1 for maximum accuracy
-        const stepSize = 1;
+        // Calculate zeta value
+        const s = new Complex(real, imag);
+        const zeta = formula === 0 ? this.reimannSiegel(s) : this.eulerMaclaurin(s);
 
-        console.log(`Parallel Spiral calculation with:
-            imag=${imag}
-            totalRange=${totalRange}
-            stepSize=${stepSize} (fixed for accuracy)`);
-
-        // Build an array of iteration values based on step size
-        const iterationValues = [];
-        for (let i = 1; i <= totalRange; i += stepSize) {
-            iterationValues.push(i);
-        }
-        console.log(`Parallel Spiral: total iterations = ${iterationValues.length}`);
-
-        // Decide on number of workers (or threads)
-        const numWorkers = navigator.hardwareConcurrency || 4;
-        const chunkSize = Math.ceil(iterationValues.length / numWorkers);
-        console.log(`Dividing iterations into ${numWorkers} chunk(s) of ~${chunkSize} values each`);
-
-        // Dispatch chunks to workers
-        const promises = [];
-        for (let i = 0; i < numWorkers; i++) {
-            const chunk = iterationValues.slice(i * chunkSize, (i + 1) * chunkSize);
-            const worker = new Worker('js/spiralWorker.js');
-            promises.push(new Promise(resolve => {
-                worker.onmessage = e => {
-                    console.log(`Worker for chunk ${i} done`);
-                    resolve({ chunkIndex: i, chunkResult: e.data });
-                    worker.terminate();
-                };
-                worker.postMessage({ chunk, real, imag });
-            }));
-        }
-
-        // Wait for all workers to finish and sort the results by chunk index
-        const results = (await Promise.all(promises)).sort((a, b) => a.chunkIndex - b.chunkIndex);
-
-        // Reassemble the spiral by applying a prefix sum adjustment to each chunk
-        let offsetX = 0;
-        let offsetY = 0;
-        const points = [];
-        points.push({ x: 0, y: 0, z: 0 });
-        let globalMin = 0;
-        let globalMax = 0;
-
-        for (const res of results) {
-            const { prefix, localSum } = res.chunkResult;
-            // Adjust each point in this chunk by the accumulated offset
-            for (const p of prefix) {
-                const x = p.x + offsetX;
-                const y = p.y + offsetY;
-                points.push({ x, y, z: 0 });
-                globalMin = Math.min(globalMin, x, y);
-                globalMax = Math.max(globalMax, x, y);
-            }
-            // Update offset for the next chunk
-            offsetX += localSum.x;
-            offsetY += localSum.y;
-        }
-
-        // Calculate the Zeta value at the target point (as in the original method)
-        let zeta;
-        switch (formula) {
-            case 0: // Riemann-Siegel
-                zeta = await this.reimannSiegel(new Complex(real, imag));
-                break;
-            default:
-                zeta = await this.reimannSiegel(new Complex(real, imag));
-        }
-
-        console.log(`Parallel Spiral complete. Total points: ${points.length}`);
-        console.log(`Scale range: { min: ${globalMin}, max: ${globalMax} }`);
+        console.timeEnd('calculateSpiral');
+        console.log(`[DEBUG] Generated ${pointCount} points (${points.length - pointCount} removed by downsampling)`);
 
         return {
-            points,
-            zeta,
-            scale: { min: globalMin, max: globalMax }
+            points: finalPoints,
+            zeta
         };
     }
 
